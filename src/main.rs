@@ -71,10 +71,11 @@ mod expression_math {
 
     //destroys the input
     fn parse_tokens(input: &[Token]) -> Result<Expression, ExpressionError> {
-        if input.len() == 1 {
+        if input.len() == 0 {
+            return Err(ExpressionError::ExpectedTokenError);
+        } else if input.len() == 1 {
             return match &input[0] {
                 Token::Operator(_) => Err(ExpressionError::UnexpectedTokenError(input[0].clone())),
-                Token::Function(_) => Err(ExpressionError::UnexpectedTokenError(input[0].clone())),
                 Token::Expression(expr) => Ok(expr.clone()),
                 Token::Constant(num) => Ok(Expression::Constant(num.clone())),
                 Token::Variable(name) => Ok(Expression::Variable(name.clone())),
@@ -123,9 +124,6 @@ mod expression_math {
                     Operator::Division => num1 / num2,
                 }
             }
-            Expression::Function(_, _) => {
-                todo!()
-            }
             Expression::Variable(name) => {
                 if let Some(value) = variables.get(&name) {
                     *value
@@ -142,9 +140,6 @@ mod expression_math {
     pub fn derivative(expr: Expression, variable: &str) -> Expression {
         match expr {
             Expression::Constant(_) => Expression::Constant(0),
-            Expression::Function(_, _) => {
-                todo!()
-            }
             Expression::UnaryOperation(_, _) => {
                 todo!()
             }
@@ -244,11 +239,8 @@ mod expression_math {
                         break;
                     }
                 }
-                if let Some(func) = function_from_string(&name) {
-                    tokens.push(Token::Function(func));
-                } else {
-                    tokens.push(Token::Variable(name));
-                }
+
+                tokens.push(Token::Variable(name));
             } else if letter.is_numeric() {
                 let start_index = index;
                 let mut end_index = start_index;
@@ -295,14 +287,9 @@ mod expression_math {
         }
     }
 
-    fn function_from_string(_name: &str) -> Option<Function> {
-        None
-    }
-
     #[derive(Debug, Clone)]
     enum Token {
         Operator(Operator),
-        Function(Function),
         Variable(String),
         Expression(Expression),
         Constant(Number),
@@ -310,7 +297,7 @@ mod expression_math {
     #[derive(Debug, Clone)]
     pub enum ExpressionError {
         UnexpectedTokenError(Token),
-        MissingTokenError(Token),
+        ExpectedTokenError,
         UnexpectedCharacterError(char),
         MissingCharacterError(char),
         InternalError,
@@ -339,16 +326,10 @@ mod expression_math {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    enum Function {
-        Sin,
-        Cos,
-    }
-    #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum Expression {
         Constant(Number),
         BinaryOperation(Box<Expression>, Operator, Box<Expression>),
         UnaryOperation(Operator, Box<Expression>),
-        Function(Function, Box<Expression>),
         Variable(String),
     }
 
@@ -357,9 +338,6 @@ mod expression_math {
             Expression::Variable(_) => false,
             Expression::BinaryOperation(expr1, _, expr2) => is_const(expr1) && is_const(expr2),
             Expression::Constant(_) => true,
-            Expression::Function(_, _) => {
-                todo!()
-            }
             Expression::UnaryOperation(_, expr1) => is_const(&expr1),
         }
     }
@@ -451,9 +429,6 @@ mod expression_math {
     fn simplify_recursive_internal(expr: Expression) -> Expression {
         match &expr {
             Expression::Constant(_) => expr,
-            Expression::Function(_, _) => {
-                todo!()
-            }
             Expression::UnaryOperation(_, _) => {
                 todo!()
             }
@@ -581,9 +556,6 @@ mod expression_math {
                 Self::UnaryOperation(op, expr) => {
                     write!(f, "{}({})", op, expr)?;
                 }
-                Self::Function(_, _) => {
-                    todo!();
-                }
                 Self::Variable(name) => {
                     write!(f, "{}", name)?;
                 }
@@ -592,8 +564,8 @@ mod expression_math {
     }
 }
 
-use std::io;
 use crate::expression_math::*;
+use std::io;
 
 fn main() {
     let mut input = String::new();
@@ -603,14 +575,17 @@ fn main() {
                 if input == "q" || input == "quit" {
                     return;
                 }
-                if let Ok(expr) = parse_expression(&input.trim()) {
-                    println!("read: {}", expr);
-                    let simplifed = simplify_expression(expr);
-                    println!("simplified: {}", simplifed);
-                    let derivative = simplify_expression(derivative(simplifed, "x"));
-                    println!("derivative: {}", derivative);
-                } else {
-                    println!("failed to parse!");
+                match parse_expression(&input.trim()) {
+                    Ok(expr) => {
+                        println!("read: {}", expr);
+                        let simplifed = simplify_expression(expr);
+                        println!("simplified: {}", simplifed);
+                        let derivative = simplify_expression(derivative(simplifed, "x"));
+                        println!("derivative: {}", derivative);
+                    }
+                    Err(e) => {
+                        eprintln!("Error parsing expression: {:?}", e);
+                    }
                 }
             }
             Err(error) => {
