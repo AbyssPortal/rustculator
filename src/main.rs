@@ -2,6 +2,17 @@ mod expression_math {
     use std::collections::HashMap;
     use std::fmt;
 
+    // enum MathFunctionError {
+    //     IndifferentiableError(String),
+    //     IncorrectParamsError(String),
+    // }
+
+    // pub trait MathFunction {
+    //     fn calculate(params: Vec<Expression>) -> Result<Expression, MathFunctionError>;
+
+    //     fn derive(params: Vec<Expression>, index: usize) -> Result<Expression, MathFunctionError>;
+    // }
+
     #[test]
     fn test_calc() {
         let exprs = [
@@ -14,6 +25,15 @@ mod expression_math {
             ("2*(3+4)", 14),
             ("10/2-3", 2),
             ("5+6-7*8/2", -17),
+            ("-1", -1),
+            ("-(1+2)", -3),
+            ("-(3*4)", -12),
+            ("-(10-5)", -5),
+            ("-(8/2)", -4),
+            ("10+-1", 9),
+            ("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-1", 1),
+            ("-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-1", -1),
+            ("---1", -1)
         ];
         let mut okay = true;
         for (expr, expected) in exprs {
@@ -68,8 +88,6 @@ mod expression_math {
         let original = parse_expression("x*x*x").unwrap();
         println!("d/dx({}) = {}", original.clone(), derivative(original, "x"));
     }
-
-    //destroys the input
     fn parse_tokens(input: &[Token]) -> Result<Expression, ExpressionError> {
         if input.len() == 0 {
             return Err(ExpressionError::ExpectedTokenError);
@@ -80,7 +98,22 @@ mod expression_math {
                 Token::Constant(num) => Ok(Expression::Constant(num.clone())),
                 Token::Variable(name) => Ok(Expression::Variable(name.clone())),
             };
+        };
+
+        // try the unary.
+        const UNARY_OPERATORS: &[Operator] = &[Operator::Addition, Operator::Subtraction];
+        match input[0] {
+            Token::Operator(op) => {
+                if UNARY_OPERATORS.contains(&op) {
+                    return Ok(Expression::UnaryOperation(
+                        op,
+                        Box::new(parse_tokens(&input[1..])?),
+                    ));
+                }
+            }
+            _ => {}
         }
+
         const OPERATORS_BY_PRIORITY: &[&[Operator]] = &[
             &[Operator::Subtraction, Operator::Addition], // First priority operators
             &[Operator::Division, Operator::Multiplication], // Second priority operators
@@ -93,11 +126,23 @@ mod expression_math {
                 match token {
                     Token::Operator(some_op) => {
                         if operators.contains(&some_op) {
-                            return Ok(Expression::BinaryOperation(
-                                Box::new(parse_tokens(&input[0..index])?),
-                                (some_op).clone(),
-                                Box::new(parse_tokens(&input[(index + 1)..])?),
-                            ));
+                            match parse_tokens(&input[0..index]) {
+                                Ok(expr1) => match parse_tokens(&input[(index + 1)..]) {
+                                    Ok(expr2) => {
+                                        return Ok(Expression::BinaryOperation(
+                                            Box::new(expr1),
+                                            (some_op).clone(),
+                                            Box::new(expr2),
+                                        ));
+                                    }
+                                    Err(_) => {
+                                        continue;
+                                    }
+                                },
+                                Err(_) => {
+                                    continue;
+                                }
+                            }
                         }
                     }
                     _ => {}
@@ -105,7 +150,7 @@ mod expression_math {
             }
         }
 
-        Err(ExpressionError::InternalError)
+        Err(ExpressionError::BadFormatError)
     }
 
     fn calculate_expression(
@@ -131,9 +176,13 @@ mod expression_math {
                     return Err(ExpressionError::UnexpectedVariableError(name));
                 }
             }
-            Expression::UnaryOperation(_, _) => {
-                todo!()
-            }
+            Expression::UnaryOperation(op, expr1) => match op {
+                Operator::Addition => calculate_expression(*expr1, variables)?,
+                Operator::Subtraction => -calculate_expression(*expr1, variables)?,
+                _ => {
+                    return Err(ExpressionError::InternalError);
+                }
+            },
         })
     }
 
@@ -303,6 +352,7 @@ mod expression_math {
         InternalError,
         BadNumberFormatError,
         UnexpectedVariableError(String),
+        BadFormatError,
     }
     type Number = i32;
     #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -577,7 +627,7 @@ fn main() {
                 }
                 match parse_expression(&input.trim()) {
                     Ok(expr) => {
-                        println!("read: {}", expr);
+                        println!("read: {}, {:?}", expr, expr);
                         let simplifed = simplify_expression(expr);
                         println!("simplified: {}", simplifed);
                         let derivative = simplify_expression(derivative(simplifed, "x"));
