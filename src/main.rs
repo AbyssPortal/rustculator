@@ -337,7 +337,7 @@ mod expression_math {
     }
 
     #[derive(Debug, Clone)]
-    enum Token {
+    pub enum Token {
         Operator(Operator),
         Variable(String),
         Expression(Expression),
@@ -356,7 +356,7 @@ mod expression_math {
     }
     type Number = i32;
     #[derive(Debug, Clone, PartialEq, Eq, Copy)]
-    enum Operator {
+    pub enum Operator {
         Addition,
         Subtraction,
         Multiplication,
@@ -375,6 +375,8 @@ mod expression_math {
         }
     }
 
+
+    
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum Expression {
         Constant(Number),
