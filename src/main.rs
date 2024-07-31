@@ -10,7 +10,7 @@ mod expression_math {
     // pub trait MathFunction {
     //     fn calculate(params: Vec<Expression>) -> Result<Expression, MathFunctionError>;
 
-    //     fn derive(params: Vec<Expression>, index: usize) -> Result<Expression, MathFunctionError>;
+    //     fn differentiate(params: Vec<Expression>, index: usize) -> Result<Expression, MathFunctionError>;
     // }
 
     #[test]
@@ -494,7 +494,35 @@ mod expression_math {
             );
         }
 
-        match (expr1, expr2) {
+        // turn unary minus into -1 * 
+
+        let multipicative_expr1 = match expr1 {
+            Expression::UnaryOperation(op, expr1_deep) => match op {
+                UnaryOperator::Minus => {
+                    Expression::BinaryOperation(Box::new(Expression::Constant(-1)), Operator::Multiplication, expr1_deep.clone())
+                }
+                UnaryOperator::Plus => {
+                    Expression::BinaryOperation(Box::new(Expression::Constant(-1)), Operator::Multiplication, expr1_deep.clone())
+                }
+            }
+            _ => expr1.clone()
+        };
+
+
+        // turn unary minus into -1 * 
+        let multipicative_expr2 = match expr2 {
+            Expression::UnaryOperation(op, expr2_deep) => match op {
+                UnaryOperator::Minus => {
+                    Expression::BinaryOperation(Box::new(Expression::Constant(-1)), Operator::Multiplication, expr2_deep.clone())
+                }
+                UnaryOperator::Plus => {
+                    Expression::BinaryOperation(Box::new(Expression::Constant(-1)), Operator::Multiplication, expr2_deep.clone())
+                }
+            }
+            _ => expr2.clone()
+        };
+
+        match (&multipicative_expr1, &multipicative_expr2) {
             (
                 Expression::BinaryOperation(lhs1, Operator::Multiplication, rhs1),
                 Expression::BinaryOperation(lhs2, Operator::Multiplication, rhs2),
@@ -616,7 +644,21 @@ mod expression_math {
                         Expression::BinaryOperation(Box::new(simple_lhs), *op, Box::new(simple_rhs))
                     }
                 }
-                _ => expr,
+                Operator::Division => {
+                    let simple_lhs = simplify_expression(*lhs.clone());
+                    let simple_rhs = simplify_expression(*rhs.clone());
+                    if simple_lhs == Expression::Constant(0)
+                    {
+                        Expression::Constant(0)
+                    } else if simple_rhs == Expression::Constant(1) {
+                        simple_lhs
+                    } else if simple_rhs == Expression::Constant (-1) {
+                        Expression::UnaryOperation(UnaryOperator::Minus, Box::new(simple_lhs))
+                    } else {
+                        Expression::BinaryOperation(Box::new(simple_lhs), *op, Box::new(simple_rhs))
+                    }
+                }
+                // _ => expr,
             },
         }
     }
@@ -643,13 +685,13 @@ mod expression_math {
         }
     }
 
-    fn operator_priority(op: &Operator) -> usize {
+    fn operator_priority(op: &Operator) -> f32 {
         match op {
-            Operator::Multiplication => 2,
-            Operator::Division => 2,
-            Operator::Addition => 1,
+            Operator::Multiplication => 2.0,
+            Operator::Division => 1.5,
+            Operator::Addition => 1.0,
 
-            Operator::Subtraction => 1,
+            Operator::Subtraction => 1.0,
         }
     }
 
@@ -713,7 +755,7 @@ fn main() {
     loop {
         match io::stdin().read_line(&mut input) {
             Ok(_) => {
-                if input == "q" || input == "quit" {
+                if input.trim() == "q" || input.trim() == "quit" {
                     return;
                 }
                 match parse_expression(&input.trim()) {
