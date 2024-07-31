@@ -31,6 +31,7 @@ mod expression_math {
             ("-(10-5)", -5),
             ("-(8/2)", -4),
             ("10+-1", 9),
+            ("-10+1", -9),
             ("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-1", 1),
             ("-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-1", -1),
             ("---1", -1)
@@ -40,6 +41,51 @@ mod expression_math {
             println!("====TEST====\n {} == {}", expr, expected);
             let calc = calculate_expression(
                 parse_expression(expr).expect("cant parse expr"),
+                &HashMap::<String, Number>::new(),
+            )
+            .expect("cant calculate");
+            if calc != expected {
+                println!("\x1b[31m====FAIL====\x1b[0m");
+                println!("====RECIEVED====");
+                println!("{} == {} ", expr, calc);
+                okay = false;
+            } else {
+                println!("\x1b[32m====GOOD=====\x1b[0m");
+            }
+        }
+        if !okay {
+            panic!();
+        }
+    }
+
+    #[test]
+    fn test_simplify_and_calc() {
+        let exprs = [
+            ("1+2", 3),
+            ("3*4", 12),
+            ("10-5", 5),
+            ("8/2", 4),
+            ("2+3*4", 14),
+            ("(2+3)*4", 20),
+            ("2*(3+4)", 14),
+            ("10/2-3", 2),
+            ("5+6-7*8/2", -17),
+            ("-1", -1),
+            ("-(1+2)", -3),
+            ("-(3*4)", -12),
+            ("-(10-5)", -5),
+            ("-(8/2)", -4),
+            ("10+-1", 9),
+            ("-10+1", -9),
+            ("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-1", 1),
+            ("-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-1", -1),
+            ("---1", -1)
+        ];
+        let mut okay = true;
+        for (expr, expected) in exprs {
+            println!("====TEST====\n {} == {}", expr, expected);
+            let calc = calculate_expression(
+                simplify_expression(parse_expression(expr).expect("cant parse expr")),
                 &HashMap::<String, Number>::new(),
             )
             .expect("cant calculate");
@@ -86,7 +132,10 @@ mod expression_math {
     #[test]
     fn test_derivative() {
         let original = parse_expression("x*x*x").unwrap();
-        println!("d/dx({}) = {}", original.clone(), derivative(original, "x"));
+        assert!(
+            simplify_expression(derivative(original, "x"))
+                == simplify_expression(parse_expression("3*x*x").unwrap())
+        );
     }
     fn parse_tokens(input: &[Token]) -> Result<Expression, ExpressionError> {
         if input.len() == 0 {
@@ -100,20 +149,6 @@ mod expression_math {
             };
         };
 
-        // try the unary.
-        const UNARY_OPERATORS: &[Operator] = &[Operator::Addition, Operator::Subtraction];
-        match input[0] {
-            Token::Operator(op) => {
-                if UNARY_OPERATORS.contains(&op) {
-                    return Ok(Expression::UnaryOperation(
-                        op,
-                        Box::new(parse_tokens(&input[1..])?),
-                    ));
-                }
-            }
-            _ => {}
-        }
-
         const OPERATORS_BY_PRIORITY: &[&[Operator]] = &[
             &[Operator::Subtraction, Operator::Addition], // First priority operators
             &[Operator::Division, Operator::Multiplication], // Second priority operators
@@ -125,22 +160,24 @@ mod expression_math {
             for (index, token) in tokens {
                 match token {
                     Token::Operator(some_op) => {
-                        if operators.contains(&some_op) {
-                            match parse_tokens(&input[0..index]) {
-                                Ok(expr1) => match parse_tokens(&input[(index + 1)..]) {
-                                    Ok(expr2) => {
-                                        return Ok(Expression::BinaryOperation(
-                                            Box::new(expr1),
-                                            (some_op).clone(),
-                                            Box::new(expr2),
-                                        ));
-                                    }
+                        if index > 0 && !matches!(input[index - 1], Token::Operator(_)) {
+                            if operators.contains(&some_op) {
+                                match parse_tokens(&input[0..index]) {
+                                    Ok(expr1) => match parse_tokens(&input[(index + 1)..]) {
+                                        Ok(expr2) => {
+                                            return Ok(Expression::BinaryOperation(
+                                                Box::new(expr1),
+                                                (some_op).clone(),
+                                                Box::new(expr2),
+                                            ));
+                                        }
+                                        Err(_) => {
+                                            continue;
+                                        }
+                                    },
                                     Err(_) => {
                                         continue;
                                     }
-                                },
-                                Err(_) => {
-                                    continue;
                                 }
                             }
                         }
@@ -150,7 +187,31 @@ mod expression_math {
             }
         }
 
+        // try the unary.
+        match input[0] {
+            Token::Operator(op) => match to_unary(&op) {
+                Some(unary_op) => {
+                    return Ok(Expression::UnaryOperation(
+                        unary_op,
+                        Box::new(parse_tokens(&input[1..])?),
+                    ));
+                }
+                None => {
+                    return Err(ExpressionError::UnexpectedTokenError(input[0].clone()));
+                }
+            },
+            _ => {}
+        }
+
         Err(ExpressionError::BadFormatError)
+    }
+
+    fn to_unary(op: &Operator) -> Option<UnaryOperator> {
+        match op {
+            Operator::Subtraction => Some(UnaryOperator::Minus),
+            Operator::Addition => Some(UnaryOperator::Plus),
+            _ => None,
+        }
     }
 
     fn calculate_expression(
@@ -177,11 +238,8 @@ mod expression_math {
                 }
             }
             Expression::UnaryOperation(op, expr1) => match op {
-                Operator::Addition => calculate_expression(*expr1, variables)?,
-                Operator::Subtraction => -calculate_expression(*expr1, variables)?,
-                _ => {
-                    return Err(ExpressionError::InternalError);
-                }
+                UnaryOperator::Plus => calculate_expression(*expr1, variables)?,
+                UnaryOperator::Minus => -calculate_expression(*expr1, variables)?,
             },
         })
     }
@@ -189,9 +247,12 @@ mod expression_math {
     pub fn derivative(expr: Expression, variable: &str) -> Expression {
         match expr {
             Expression::Constant(_) => Expression::Constant(0),
-            Expression::UnaryOperation(_, _) => {
-                todo!()
-            }
+            Expression::UnaryOperation(op, expr1) => match op {
+                UnaryOperator::Plus => derivative(*expr1, variable),
+                UnaryOperator::Minus => {
+                    Expression::UnaryOperation(op, Box::new(derivative(*expr1, variable)))
+                }
+            },
             Expression::Variable(some_var) => {
                 if some_var == variable {
                     Expression::Constant(1)
@@ -349,7 +410,7 @@ mod expression_math {
         ExpectedTokenError,
         UnexpectedCharacterError(char),
         MissingCharacterError(char),
-        InternalError,
+        _InternalError,
         BadNumberFormatError,
         UnexpectedVariableError(String),
         BadFormatError,
@@ -361,6 +422,12 @@ mod expression_math {
         Subtraction,
         Multiplication,
         Division,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Copy)]
+    pub enum UnaryOperator {
+        Minus,
+        Plus,
     }
 
     impl fmt::Display for Operator {
@@ -375,13 +442,21 @@ mod expression_math {
         }
     }
 
+    impl fmt::Display for UnaryOperator {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            let symbol = match self {
+                UnaryOperator::Plus => "+",
+                UnaryOperator::Minus => "-",
+            };
+            write!(f, "{}", symbol)
+        }
+    }
 
-    
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum Expression {
         Constant(Number),
         BinaryOperation(Box<Expression>, Operator, Box<Expression>),
-        UnaryOperation(Operator, Box<Expression>),
+        UnaryOperation(UnaryOperator, Box<Expression>),
         Variable(String),
     }
 
@@ -481,15 +556,25 @@ mod expression_math {
     fn simplify_recursive_internal(expr: Expression) -> Expression {
         match &expr {
             Expression::Constant(_) => expr,
-            Expression::UnaryOperation(_, _) => {
-                todo!()
-            }
+            Expression::UnaryOperation(op, expr1) => match op {
+                UnaryOperator::Plus => simplify_expression(*expr1.clone()),
+                UnaryOperator::Minus => {
+                    let simp_expr1 = simplify_expression(*expr1.clone());
+
+                    match simp_expr1 {
+                        Expression::UnaryOperation(UnaryOperator::Minus, expr2) => *expr2,
+                        _ => Expression::UnaryOperation(*op, Box::new(simp_expr1)),
+                    }
+                }
+            },
             Expression::Variable(_) => expr,
             Expression::BinaryOperation(lhs, op, rhs) => match op {
                 Operator::Subtraction => {
                     let simple_lhs = simplify_expression(*lhs.clone());
                     let simple_rhs = simplify_expression(*rhs.clone());
-                    if simple_rhs == Expression::Constant(0) {
+                    if simple_lhs == Expression::Constant(0) {
+                        Expression::UnaryOperation(UnaryOperator::Minus, Box::new(simple_rhs))
+                    } else if simple_rhs == Expression::Constant(0) {
                         simple_lhs
                     } else if let Some(simplifed) = simplify_gcd(&simple_lhs, &simple_rhs, *op) {
                         simplifed
@@ -521,6 +606,10 @@ mod expression_math {
                         simple_rhs
                     } else if simple_rhs == Expression::Constant(1) {
                         simple_lhs
+                    } else if simple_lhs == Expression::Constant(-1) {
+                        Expression::UnaryOperation(UnaryOperator::Minus, Box::new(simple_rhs))
+                    } else if simple_rhs == Expression::Constant (-1) {
+                        Expression::UnaryOperation(UnaryOperator::Minus, Box::new(simple_lhs))
                     } else if matches!(simple_lhs, Expression::Variable(_)) {
                         Expression::BinaryOperation(Box::new(simple_rhs), *op, Box::new(simple_lhs))
                     } else {
